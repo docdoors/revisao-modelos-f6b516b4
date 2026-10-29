@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Revisão dos modelos</title>
+<style>
+:root { --bg: #ffffff; --ink: #222; --muted: #777; --line: #e5e5e5; --accent: #b5562f; --soft: #fbf3ee; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #1c1c1c; --ink: #e8e8e8; --muted: #9a9a9a; --line: #333; --accent: #e08a62; --soft: #2a221e; }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; padding-bottom: 64px; }
+main { max-width: 720px; margin: 0 auto; padding: 12px 16px; }
+h1 { font-size: 1.1rem; margin: 6px 0 10px; }
+h2 { font-size: .95rem; margin: 20px 0 4px; }
+p { margin: 6px 0; }
+.muted { color: var(--muted); }
+.small { font-size: .82rem; }
+button { font: inherit; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 6px; padding: 7px 12px; cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.link { border: 0; background: none; color: var(--accent); padding: 4px 0; }
+input[type=text], input[type=search], textarea { font: inherit; width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); }
+textarea { min-height: 54px; resize: vertical; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+label.check { display: flex; gap: 8px; align-items: center; padding: 5px 0; cursor: pointer; }
+label.check input { width: 18px; height: 18px; flex: none; accent-color: var(--accent); }
+.item { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.item .txt { flex: 1; min-width: 0; }
+.item .name { font-weight: 600; }
+.item .conc { color: var(--muted); }
+.item.no { background: var(--soft); margin: 0 -8px; padding: 8px; border-radius: 6px; border-bottom-color: transparent; }
+.seg { display: flex; flex: none; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; padding: 6px 9px; font-size: .8rem; color: var(--muted); background: var(--bg); }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed=true] { color: var(--bg); background: var(--ink); }
+.seg button.dis[aria-pressed=true] { background: var(--accent); }
+.why { margin-top: 6px; }
+.blank { display: inline-block; min-width: 1.8em; border-bottom: 1px dashed var(--muted); }
+.cardname { font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 14px 0 0; }
+.footer { position: fixed; left: 0; right: 0; bottom: 0; background: var(--bg); border-top: 1px solid var(--line); padding: 8px 16px calc(8px + env(safe-area-inset-bottom)); }
+.footer .inner { max-width: 720px; margin: 0 auto; display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+.footer .status { font-size: .8rem; color: var(--muted); }
+.footer .status.err { color: var(--ink); font-weight: 600; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 70px; background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 6px; display: none; max-width: 90vw; z-index: 5; font-size: .85rem; }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<main id="app"></main>
+<div class="footer" id="footer">
+  <div class="inner">
+    <div class="status" id="status" role="status" aria-live="polite"></div>
+    <button class="primary" id="sendBtn">Enviar respostas</button>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="data.js"></script>
+<script>
+"use strict";
+const D = window.REVIEW_DATA;
+const KEY = "sonnaria-revisao-simples-" + D.version;
+const EXAMS = Object.fromEntries(D.exams.map((e) => [e.id, e]));
+
+/* ---------- estado: só as discordâncias (o resto é "concordo") ---------- */
+let loadProblem = "";
+let S = load();
+function fresh() {
+  const code = Array.from(crypto.getRandomValues(new Uint8Array(3)), (b) => b.toString(16).padStart(2, "0")).join("");
+  return { code, name: "", exams: [], no: {}, notes: {}, exports: 0, started: false, savedAt: null };
+}
+function load() {
+  let raw = null;
+  try { raw = localStorage.getItem(KEY); } catch (e) { loadProblem = "Este navegador não deixa salvar: abra no Safari ou no Chrome."; }
+  if (!raw) return fresh();
+  try { return Object.assign(fresh(), JSON.parse(raw)); }
+  catch (e) {
+    try { localStorage.setItem(KEY + "-ilegivel-" + Date.now(), raw); } catch (e2) { /* sem espaço */ }
+    loadProblem = "Não consegui recuperar as respostas salvas.";
+    return fresh();
+  }
+}
+let saveOk = true;
+function save() {
+  S.savedAt = new Date().toISOString();
+  try { localStorage.setItem(KEY, JSON.stringify(S)); saveOk = true; } catch (e) { saveOk = false; }
+  status();
+}
+
+/* ---------- utilidades ---------- */
+const $ = (sel, el = document) => el.querySelector(sel);
+function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
+function fold(s) { return String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase(); }
+function txt(lines) { return esc(lines.join(" ")).replace(/•••/g, '<span class="blank"></span>'); }
+function toast(msg) {
+  const t = $("#toast"); t.textContent = msg; t.style.display = "block";
+  clearTimeout(toast.h); toast.h = setTimeout(() => (t.style.display = "none"), 2400);
+}
+function nDis() { return Object.keys(S.no).length; }
+function status() {
+  const el = $("#status");
+  if (loadProblem || !saveOk) {
+    el.textContent = loadProblem || "Não consegui salvar: toque em Enviar respostas para não perder.";
+    el.classList.add("err");
+    return;
+  }
+  el.classList.remove("err");
+  const n = nDis();
+  el.textContent = S.savedAt ? `Salvo · ${n} ${n === 1 ? "discordância" : "discordâncias"}` : "";
+}
+
+/* ---------- rotas ---------- */
+function go(h) { location.hash = h; }
+window.addEventListener("hashchange", route);
+function route() {
+  const h = location.hash.slice(1);
+  window.scrollTo(0, 0);
+  if (h === "exames") return viewPicker();
+  if (h.startsWith("e/")) return viewExam(decodeURIComponent(h.slice(2)));
+  if (h === "lista") return viewList();
+  return viewStart();
+}
+
+function viewStart() {
+  $("#app").innerHTML = `
+    <h1>Revisão dos modelos de laudo do Sonnaria <span class="muted">${esc(D.version)}</span></h1>
+    ${/FBAN|FBAV|Instagram|WhatsApp|Line\//i.test(navigator.userAgent) ? `<p><strong>Abra este link no Safari ou no Chrome</strong> para as respostas ficarem salvas.</p>` : ""}
+    <p>Marque os exames que você faz. Em cada frase já vem <strong>Concordo</strong>; toque em <strong>Discordo</strong> só onde mudaria algo e escreva o porquê.</p>
+    <p class="muted small">Fica salvo neste celular. No fim, toque em Enviar respostas.</p>
+    <p><input type="text" id="nm" placeholder="Seu nome (opcional)" aria-label="Seu nome (opcional)" value="${esc(S.name)}"></p>
+    <p><button class="primary" id="go">${S.started ? "Continuar" : "Começar"}</button></p>`;
+  $("#nm").addEventListener("input", (e) => { S.name = e.target.value; save(); });
+  $("#go").onclick = () => { S.started = true; save(); go(S.exams.length ? "lista" : "exames"); };
+}
+
+function viewPicker() {
+  const groups = [];
+  for (const e of D.exams) {
+    let g = groups.find((x) => x[0] === e.group);
+    if (!g) groups.push((g = [e.group, []]));
+    g[1].push(e);
+  }
+  $("#app").innerHTML = `
+    <h1>Quais exames você faz?</h1>
+    <p><input type="search" id="q" placeholder="Buscar exame" aria-label="Buscar exame"></p>
+    <div id="groups">${groups.map(([g, list]) => `<section><h2>${esc(g)}</h2>
+      ${list.map((e) => `<label class="check" data-name="${esc(fold(e.name))}"><input type="checkbox" value="${esc(e.id)}" ${S.exams.includes(e.id) ? "checked" : ""}> ${esc(e.name)}</label>`).join("")}
+    </section>`).join("")}</div>
+    <p style="margin-top:14px"><button class="primary" id="ok">Pronto</button></p>`;
+  document.querySelectorAll("#groups input").forEach((i) => (i.onchange = () => {
+    S.exams = [...document.querySelectorAll("#groups input:checked")].map((x) => x.value);
+    save();
+  }));
+  $("#q").addEventListener("input", (e) => {
+    const q = fold(e.target.value.trim());
+    document.querySelectorAll("#groups label.check").forEach((l) => l.classList.toggle("hidden", !!q && !l.dataset.name.includes(q)));
+    document.querySelectorAll("#groups section").forEach((s) => s.classList.toggle("hidden", !!q && !s.querySelector("label.check:not(.hidden)")));
+  });
+  $("#ok").onclick = () => go("lista");
+}
+
+function examDis(id) { return Object.keys(S.no).filter((k) => k.startsWith(id + "/")).length; }
+function viewList() {
+  const mine = D.exams.filter((e) => S.exams.includes(e.id));
+  $("#app").innerHTML = `
+    <h1>Seus exames</h1>
+    ${mine.length ? mine.map((e) => {
+      const n = examDis(e.id);
+      return `<div class="item"><div class="txt"><span class="name">${esc(e.name)}</span><br><span class="small muted">${n ? n + (n === 1 ? " discordância" : " discordâncias") : "concordo com tudo"}</span></div>
+        <button data-e="${esc(e.id)}">Abrir</button></div>`;
+    }).join("") : `<p class="muted">Nenhum exame marcado.</p>`}
+    <p><button class="link" id="pick">Mudar a lista de exames</button></p>
+    <h2>Comentário geral (opcional)</h2>
+    <textarea id="geral" aria-label="Comentário geral">${esc(S.notes._geral || "")}</textarea>`;
+  document.querySelectorAll("[data-e]").forEach((b) => (b.onclick = () => go("e/" + encodeURIComponent(b.dataset.e))));
+  $("#pick").onclick = () => go("exames");
+  $("#geral").addEventListener("input", (e) => { setNote("_geral", e.target.value); });
+}
+function setNote(id, v) { if (v.trim()) S.notes[id] = v; else delete S.notes[id]; save(); }
+
+/* Uma linha: o texto, Concordo/Discordo ao lado; Discordo abre o campo embaixo. */
+function item(id, name, body, conc) {
+  const no = id in S.no;
+  return `<div class="item ${no ? "no" : ""}" data-item="${esc(id)}"><div class="txt">
+      ${name ? `<div class="name">${esc(name)}</div>` : ""}<div>${body}</div>${conc ? `<div class="conc small">${conc}</div>` : ""}
+      <textarea class="why ${no ? "" : "hidden"}" data-why="${esc(id)}" placeholder="O que mudaria?" aria-label="O que mudaria em ${esc(name || "esta frase")}">${esc(S.no[id] || "")}</textarea>
+    </div>
+    <div class="seg" role="group" aria-label="Sua opinião">
+      <button data-v="ok" data-id="${esc(id)}" aria-pressed="${!no}">Concordo</button><button class="dis" data-v="no" data-id="${esc(id)}" aria-pressed="${no}">Discordo</button>
+    </div></div>`;
+}
+
+function viewExam(eid) {
+  const e = EXAMS[eid];
+  if (!e) return go("lista");
+  const cards = [];
+  for (const f of e.findings) {
+    let c = cards.find((x) => x[0] === f.card);
+    if (!c) cards.push((c = [f.card, []]));
+    c[1].push(f);
+  }
+  $("#app").innerHTML = `
+    <p><button class="link" id="back">← Seus exames</button></p>
+    <h1>${esc(e.name)}</h1>
+    <p class="small muted">Os números são só exemplo.</p>
+    <h2>Laudo normal</h2>
+    ${e.normal.map((s) => item(`${e.id}/_normal/${s.id}`, "", txt(s.lines), "")).join("")}
+    ${item(`${e.id}/_normal/_conclusao`, "", "<span class='muted'>Conclusão:</span> " + txt(e.conclusion), "")}
+    <h2>Achados</h2>
+    <p><input type="search" id="fq" placeholder="Buscar achado" aria-label="Buscar achado"></p>
+    <div id="findings">${cards.map(([c, fs]) => `<div data-group>${c ? `<div class="cardname">${esc(c)}</div>` : ""}
+      ${fs.map((f) => `<div data-f="${esc(fold(f.name + " " + c))}">${item(`${e.id}/${f.id}`, f.name,
+        f.error ? "<span class='muted'>(exemplo indisponível)</span>" : txt(f.text),
+        f.concSame ? "Conclusão: não muda." : "Conclusão: " + txt(f.conclusion))}</div>`).join("")}</div>`).join("")}
+    </div>
+    <h2>Faltou algo neste exame? (opcional)</h2>
+    <textarea id="falta" aria-label="Faltou algo neste exame">${esc(S.notes[e.id] || "")}</textarea>
+    <p style="margin-top:14px"><button id="back2">← Seus exames</button></p>`;
+  $("#back").onclick = $("#back2").onclick = () => go("lista");
+  $("#falta").addEventListener("input", (ev) => setNote(e.id, ev.target.value));
+  $("#fq").addEventListener("input", (ev) => {
+    const q = fold(ev.target.value.trim());
+    document.querySelectorAll("[data-f]").forEach((d) => d.classList.toggle("hidden", !!q && !d.dataset.f.includes(q)));
+    document.querySelectorAll("[data-group]").forEach((g) => g.classList.toggle("hidden", !!q && !g.querySelector("[data-f]:not(.hidden)")));
+  });
+}
+
+/* ---------- eventos ---------- */
+document.addEventListener("click", (ev) => {
+  const b = ev.target.closest("button[data-v]");
+  if (!b) return;
+  const id = b.dataset.id;
+  const row = b.closest(".item");
+  const no = b.dataset.v === "no";
+  if (no) { if (!(id in S.no)) S.no[id] = ""; } else delete S.no[id];
+  save();
+  row.classList.toggle("no", no);
+  row.querySelectorAll(".seg button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  const ta = row.querySelector("textarea.why");
+  ta.classList.toggle("hidden", !no);
+  if (no) ta.focus();
+});
+document.addEventListener("input", (ev) => {
+  const id = ev.target.dataset && ev.target.dataset.why;
+  if (!id) return;
+  S.no[id] = ev.target.value;
+  save();
+});
+
+/* ---------- o arquivo: só as discordâncias; o resto dos exames marcados = concordo ---------- */
+function fx(s) { return String(s).replace(/\\/g, "\\\\").replace(/\r?\n/g, "\\n").replace(/\|/g, "\\|"); }
+function buildFile() {
+  const now = new Date();
+  const p2 = (n) => String(n).padStart(2, "0");
+  const out = [
+    "# sonnaria-revisao 2",
+    "# versao-modelos: " + D.version,
+    "# catalogo: " + D.catalog,
+    "# revisor: " + S.code,
+    "# exportacao: " + (S.exports + 1),
+    "# medico: " + fx((S.name || "").trim()),
+    `# gerado: ${now.getFullYear()}-${p2(now.getMonth() + 1)}-${p2(now.getDate())} ${p2(now.getHours())}:${p2(now.getMinutes())}`,
+    "# exames: " + S.exams.join(", "),
+  ];
+  for (const id of Object.keys(S.no).sort()) out.push(`${id} | discordo | ${fx(S.no[id].trim())}`);
+  for (const id of Object.keys(S.notes).sort()) out.push(`${id === "_geral" ? "_geral" : id + "/_exame"} | comentario | ${fx(S.notes[id].trim())}`);
+  return out.join("\n") + "\n";
+}
+function fileName() {
+  const d = new Date();
+  return `revisao_sonnaria_${S.code}_${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}.txt`;
+}
+/* "Enviar respostas" baixa o arquivo direto; o médico o manda pelo WhatsApp. */
+function download() {
+  const blob = new Blob([buildFile()], { type: "text/plain;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = fileName();
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  S.exports += 1; save();
+  toast("Arquivo baixado. Mande-o para mim pelo WhatsApp.");
+}
+
+$("#sendBtn").onclick = download;
+document.addEventListener("focusin", (e) => { if (e.target.matches("textarea, input")) $("#footer").classList.add("hidden"); });
+document.addEventListener("focusout", () => setTimeout(() => {
+  if (!document.activeElement || !document.activeElement.matches("textarea, input")) $("#footer").classList.remove("hidden");
+}, 50));
+status();
+route();
+</script>
+</body>
+</html>
